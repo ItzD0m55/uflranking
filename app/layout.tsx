@@ -6,7 +6,7 @@ const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'UFL World Rankings',
-  description: 'Official Rankings for the UFL,
+  description: 'Official Rankings for the UFL',
 };
 
 export default function RootLayout({
