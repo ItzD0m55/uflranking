@@ -141,9 +141,10 @@ const addFight = async (fight: Fight) => {
       await setDoc(doc(db, 'fighters', `${f.name}-${f.platform}`), f);
     }
 
-    setFights([...fights, fight]);
-    setFighters(updatedFighters);
-    await refreshData();
+    const newFights = [...fights, fight];
+    setFights(newFights);
+    await recalculateRecords(newFights); // ✅ accurate and recalculated
+    await refreshData(); // ✅ pull synced data
   } catch (err) {
     console.error('Add fight error:', err);
   }
@@ -250,7 +251,7 @@ setFighters(updatedFighters);
     }
 
     setFights(updatedFights);
-    recalculateRecords(updatedFights);
+    await recalculateRecords(updatedFights);
 
     const updatedChamps = { ...champions };
     for (const p of platforms) {
@@ -290,7 +291,7 @@ const setChampion = async (platform: Platform, name: string) => {
       fight => fight.fighter1 !== name && fight.fighter2 !== name
     );
     setFights(remainingFights);
-    recalculateRecords(remainingFights);
+    await recalculateRecords(remainingFights);
 
     const allFightsSnapshot = await getDocs(collection(db, 'fights'));
     for (const docSnap of allFightsSnapshot.docs) {
@@ -314,27 +315,78 @@ const setChampion = async (platform: Platform, name: string) => {
 };
 
   const rankedFighters = (platform: Platform) => {
-    const platformFighters = fighters.filter(f => f.platform === platform && f.name !== champions[platform]);
-    return platformFighters
-      .map(f => {
-        const quality = fights
-          .filter(fight => fight.platform === platform && (fight.fighter1 === f.name || fight.fighter2 === f.name))
-          .reduce((acc, fight) => {
-            const opponentName = fight.fighter1 === f.name ? fight.fighter2 : fight.fighter1;
-            const opponent = fighters.find(o => o.name === opponentName);
-            return acc + (opponent ? opponent.wins : 0);
-          }, 0);
-        return { ...f, quality };
-      })
-      .sort((a, b) => {
-        const scoreA = a.wins * 5 + a.quality - a.losses * 2;
-        const scoreB = b.wins * 5 + b.quality - b.losses * 2;
-        return scoreB - scoreA;
-      })
-      .slice(0, 10);
-  };
+  const now = new Date();
+
+  const platformFighters = fighters.filter(
+    f => f.platform === platform && f.name !== champions[platform]
+  );
+
+  const scoredFighters = platformFighters.map(f => {
+    // Get all fights involving this fighter on this platform
+    const relevantFights = fights.filter(
+      fight =>
+        fight.platform === platform &&
+        (fight.fighter1 === f.name || fight.fighter2 === f.name)
+    );
+
+    // Quality of opponents beaten
+    const quality = relevantFights.reduce((acc, fight) => {
+      if (fight.winner === f.name) {
+        const opponentName = fight.fighter1 === f.name ? fight.fighter2 : fight.fighter1;
+        const opponent = fighters.find(o => o.name === opponentName && o.platform === platform);
+        return acc + (opponent ? opponent.wins : 0);
+      }
+      return acc;
+    }, 0);
+
+    // Recency bonus (only for wins in last 20 days)
+    const recencyBonus = relevantFights.reduce((acc, fight) => {
+      if (fight.winner === f.name) {
+        const fightDate = new Date(fight.date);
+        const daysAgo = (now.getTime() - fightDate.getTime()) / (1000 * 60 * 60 * 24);
+        if (daysAgo <= 20) {
+          acc += 2; // Boost for recent activity
+        }
+      }
+      return acc;
+    }, 0);
+
+    const score = f.wins * 5 + quality - f.losses * 2 + recencyBonus;
+
+    return { ...f, score };
+  });
+
+  // Sort by score descending
+  scoredFighters.sort((a, b) => b.score - a.score);
+
+  // Apply head-to-head override (bump a fighter above someone they beat recently)
+  for (let i = 0; i < scoredFighters.length; i++) {
+    const fighterA = scoredFighters[i];
+    for (let j = i + 1; j < scoredFighters.length; j++) {
+      const fighterB = scoredFighters[j];
+
+      const recentFight = fights.find(fight => {
+        const involved = 
+          (fight.fighter1 === fighterA.name && fight.fighter2 === fighterB.name) ||
+          (fight.fighter2 === fighterA.name && fight.fighter1 === fighterB.name);
+        const recent = (new Date().getTime() - new Date(fight.date).getTime()) / (1000 * 60 * 60 * 24) <= 20;
+        return involved && recent && fight.winner === fighterA.name && fight.platform === platform;
+      });
+
+      if (recentFight) {
+        // Move Fighter A above Fighter B
+        scoredFighters.splice(j, 1);
+        scoredFighters.splice(i, 0, fighterB);
+        // Rerun from start due to mutation
+        return scoredFighters.slice(0, 10);
+      }
+    }
+  }
+
+  return scoredFighters.slice(0, 10);
+};
   
-const recalculateRecords = (
+const recalculateRecords = async (
   fightsToUse: Fight[],
   fighterList: Fighter[] = fighters
 ) => {
@@ -372,6 +424,11 @@ const recalculateRecords = (
   });
 
   setFighters(updatedFighters);
+
+  // ✅ Save updated records to Firebase
+  for (const f of updatedFighters) {
+    await setDoc(doc(db, 'fighters', `${f.name}-${f.platform}`), f);
+  }
 };
 
   return (
@@ -588,59 +645,63 @@ const recalculateRecords = (
             <p>Method: {fight.method}</p>
             <p>Platform: {fight.platform}</p>
             <p>Date: {fight.date}</p>
-            <button
-              className="mt-2 mr-2 px-3 py-1 bg-yellow-600 rounded text-sm"
-            onClick={() => {
-  (async () => {
-    const newWinner = prompt('Edit Winner:', fight.winner);
-    const newMethod = prompt('Edit Method (KO, Decision, Draw):', fight.method);
-    const newDate = prompt('Edit Date (YYYY-MM-DD):', fight.date);
+            {admin && (
+  <>
+    <button
+      className="mt-2 mr-2 px-3 py-1 bg-yellow-600 rounded text-sm"
+      onClick={() => {
+        (async () => {
+          const newWinner = prompt('Edit Winner:', fight.winner);
+          const newMethod = prompt('Edit Method (KO, Decision, Draw):', fight.method);
+          const newDate = prompt('Edit Date (YYYY-MM-DD):', fight.date);
 
-    if (!newWinner || !newMethod || !newDate) return;
+          if (!newWinner || !newMethod || !newDate) return;
 
-    const updatedFights = [...fights];
-    updatedFights[i] = {
-      ...fight,
-      winner: newWinner,
-      method: newMethod as 'KO' | 'Decision' | 'Draw',
-      date: newDate,
-    };
-    setFights(updatedFights);
-    recalculateRecords(updatedFights);
+          const updatedFights = [...fights];
+          updatedFights[i] = {
+            ...fight,
+            winner: newWinner,
+            method: newMethod as 'KO' | 'Decision' | 'Draw',
+            date: newDate,
+          };
+          setFights(updatedFights);
+          await recalculateRecords(updatedFights);
 
-    const allFightsSnapshot = await getDocs(collection(db, 'fights'));
-    const fightDoc = allFightsSnapshot.docs.find(d => {
-      const data = d.data();
-      return (
-        data.fighter1 === fight.fighter1 &&
-        data.fighter2 === fight.fighter2 &&
-        data.date === fight.date &&
-        data.platform === fight.platform
-      );
-    });
+          const allFightsSnapshot = await getDocs(collection(db, 'fights'));
+          const fightDoc = allFightsSnapshot.docs.find(d => {
+            const data = d.data();
+            return (
+              data.fighter1 === fight.fighter1 &&
+              data.fighter2 === fight.fighter2 &&
+              data.date === fight.date &&
+              data.platform === fight.platform
+            );
+          });
 
-    if (fightDoc) {
-      await updateDoc(doc(db, 'fights', fightDoc.id), {
-        winner: newWinner,
-        method: newMethod,
-        date: newDate,
-      });
-    }
-  })();
-}}
-           >
-              Edit
-            </button>
-            <button
-              className="mt-2 px-3 py-1 bg-red-600 rounded text-sm"
-              onClick={() => {
-                if (confirm('Are you sure you want to delete this fight?')) {
-                  deleteFight(i);
-                }
-              }}
-            >
-              Delete
-            </button>
+          if (fightDoc) {
+            await updateDoc(doc(db, 'fights', fightDoc.id), {
+              winner: newWinner,
+              method: newMethod,
+              date: newDate,
+            });
+          }
+        })();
+      }}
+    >
+      Edit
+    </button>
+    <button
+      className="mt-2 px-3 py-1 bg-red-600 rounded text-sm"
+      onClick={() => {
+        if (confirm('Are you sure you want to delete this fight?')) {
+          deleteFight(i);
+        }
+      }}
+    >
+      Delete
+    </button>
+  </>
+)}
           </div>
         ))}
     </div>
@@ -648,5 +709,4 @@ const recalculateRecords = (
 )}
 
     </main>
-  );
-}
+  );}
