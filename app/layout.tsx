@@ -4,9 +4,9 @@ import { Inter } from 'next/font/google';
 
 const inter = Inter({ subsets: ['latin'] });
 
-export const metadata: Metadata = {
+export const metadata = {
   title: 'UFL World Rankings',
-  description: 'Official Rankings for the UFL',
+  description: 'Official Rankings for the UFL League',
 };
 
 export default function RootLayout({
