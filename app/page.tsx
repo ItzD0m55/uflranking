@@ -59,8 +59,8 @@ export default function Home() {
     const championsSnapshot = await getDocs(collection(db, 'champions'));
 
     const fightersData = fightersSnapshot.docs.map(doc => doc.data() as Fighter);
-    const fightsData = fightsSnapshot.docs.map(doc => doc.data());
-    const champsData = championsSnapshot.docs.map(doc => doc.data());
+    const fightsData = fightsSnapshot.docs.map(doc => doc.data() as Fight);
+    const champsData = championsSnapshot.docs.map(doc => doc.data() as { platform: Platform; name: string });
 
     setFighters(fightersData);
     setFights(fightsData);
