@@ -791,3 +791,4 @@ onClick={() => handleDeleteFight(fight.id)}
       </AnimatePresence>
     </div>
   );
+}
