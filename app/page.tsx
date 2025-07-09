@@ -26,8 +26,7 @@ type Fighter = {
   losses: number;
   draws: number;
   koWins: number;
-  previousRank: number;
-  champion: boolean;
+  champion?: boolean;
 };
 
 type Fight = {
@@ -83,15 +82,14 @@ export default function Home() {
     await fetchFighters(); // <-- Refresh fighters after update
     await fetchFights();   // optional: refresh fights list
   
-setNewFight({
-  id: crypto.randomUUID(), // ✅ add this line to fix the error
-  fighter1: '',
-  fighter2: '',
-  winner: '',
-  method: 'Decision',
-  date: '',
-  platform: 'UFL PC', // or your default platform
-});
+    setNewFight({
+      fighter1: '',
+      fighter2: '',
+      winner: '',
+      method: 'Decision',
+      date: '',
+      platform: 'UFL PC',
+    });
   };     
 
   const handleAddFighter = async () => {
@@ -199,16 +197,12 @@ const fetchFights = async () => {
     if (!newFighter.name) return;
     const exists = fighters.find(f => f.name === newFighter.name);
     if (exists) return alert('Fighter already exists!');
-const fighter: Fighter = {
-  ...newFighter,
-  id: crypto.randomUUID(),
-  champion: false,          
-  wins: 0,
-  losses: 0,
-  draws: 0,
-  koWins: 0,
-  previousRank: 0,
-};
+    const fighter: Fighter = { ...newFighter, wins: 0, losses: 0, draws: 0, koWins: 0, previousRank: 0 };
+    await addDoc(collection(db, 'fighters'), fighter);
+    fetchFighters();
+    setNewFighter({ name: '', platform: 'UFL PC' });
+  };
+
   const addFight = async () => {
     const f1 = fighters.find(f => f.name === newFight.fighter1);
     const f2 = fighters.find(f => f.name === newFight.fighter2);
