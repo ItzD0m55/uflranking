@@ -25,7 +25,8 @@ type Fighter = {
   losses: number;
   draws: number;
   koWins: number;
-  previousRank: number; // ✅ Add this line
+  previousRank: number;
+  champion: boolean;
 };
 
 type Fight = {
