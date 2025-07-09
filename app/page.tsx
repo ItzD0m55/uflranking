@@ -82,14 +82,15 @@ export default function Home() {
     await fetchFighters(); // <-- Refresh fighters after update
     await fetchFights();   // optional: refresh fights list
   
-    setNewFight({
-      fighter1: '',
-      fighter2: '',
-      winner: '',
-      method: 'Decision',
-      date: '',
-      platform: 'UFL PC',
-    });
+setNewFight({
+  id: crypto.randomUUID(), // ✅ add this line to fix the error
+  fighter1: '',
+  fighter2: '',
+  winner: '',
+  method: 'Decision',
+  date: '',
+  platform: 'UFL PC', // or your default platform
+});
   };     
 
   const handleAddFighter = async () => {
