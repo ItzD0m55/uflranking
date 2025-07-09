@@ -20,6 +20,7 @@ type Platform = typeof platforms[number];
 
 type Fighter = {
   id: string;
+  previousRank: number;
   name: string;
   platform: Platform;
   wins: number;
@@ -198,7 +199,7 @@ const fetchFights = async () => {
     if (!newFighter.name) return;
     const exists = fighters.find(f => f.name === newFighter.name);
     if (exists) return alert('Fighter already exists!');
-    const fighter: Fighter = { ...newFighter, wins: 0, losses: 0, draws: 0, koWins: 0, previousRank: 0 };
+    const fighter: Fighter = { ...newFighter, id: crypto.randomUUID(), wins: 0, losses: 0, draws: 0, koWins: 0, previousRank: 0, champion: false };
     await addDoc(collection(db, 'fighters'), fighter);
     fetchFighters();
     setNewFighter({ name: '', platform: 'UFL PC' });
