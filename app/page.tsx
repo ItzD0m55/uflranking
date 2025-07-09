@@ -83,9 +83,10 @@ export default function Home() {
     await fetchFights();   // optional: refresh fights list
   
     setNewFight({
-      fighter1: '',
-      fighter2: '',
-      winner: '',
+  id: crypto.randomUUID(),
+  fighter1: '',
+  fighter2: '',
+  winner: '',
       method: 'Decision',
       date: '',
       platform: 'UFL PC',
@@ -233,7 +234,11 @@ const fetchFights = async () => {
     });
 
     await addDoc(collection(db, 'fights'), newFight);
-    setNewFight({ fighter1: '', fighter2: '', winner: '', method: 'Decision', platform: 'UFL PC', date: '' });
+    setNewFight({
+  id: crypto.randomUUID(),
+  fighter1: '',
+  fighter2: '',
+  winner: '', method: 'Decision', platform: 'UFL PC', date: '' });
     fetchFights();
     fetchFighters();
   };
@@ -786,4 +791,3 @@ onClick={() => handleDeleteFight(fight.id)}
       </AnimatePresence>
     </div>
   );
-}
