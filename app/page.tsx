@@ -19,14 +19,13 @@ const platforms = ['UFL PC', 'UFL PS5', 'UFL XBOX'] as const;
 type Platform = typeof platforms[number];
 
 type Fighter = {
-  id: string;
   name: string;
   platform: Platform;
   wins: number;
   losses: number;
   draws: number;
   koWins: number;
-  champion?: boolean;
+  previousRank: number; // ✅ Add this line
 };
 
 type Fight = {
