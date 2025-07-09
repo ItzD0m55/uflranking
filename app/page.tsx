@@ -1,35 +1,36 @@
-// app/page.tsx
-
 'use client';
 
 import { useState, useEffect } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
-// Replace Supabase with Firebase setup
+import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '@/firebase/config';
 import {
   collection,
-  doc,
-  setDoc,
-  getDocs,
   addDoc,
+  getDocs,
+  doc,
   deleteDoc,
   updateDoc,
+  setDoc,
 } from 'firebase/firestore';
 
+const tabs = ['Records', 'UFL PC', 'UFL PS5', 'UFL XBOX', 'Fights', 'Admin'] as const;
+type Tab = typeof tabs[number];
 const platforms = ['UFL PC', 'UFL PS5', 'UFL XBOX'] as const;
 type Platform = typeof platforms[number];
 
 type Fighter = {
+  id: string;
   name: string;
   platform: Platform;
   wins: number;
   losses: number;
   draws: number;
   koWins: number;
-  previousRank: number;
+  champion?: boolean;
 };
 
 type Fight = {
+  id: string;
   fighter1: string;
   fighter2: string;
   winner: string;
@@ -39,674 +40,750 @@ type Fight = {
 };
 
 export default function Home() {
-  const [tab, setTab] = useState<'Records' | Platform | 'Fights' | 'Admin'>('Records');
+  const [tab, setTab] = useState<Tab>('Records');
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [fights, setFights] = useState<Fight[]>([]);
-  const [champions, setChampions] = useState<Record<Platform, string>>({
-    'UFL PC': '',
-    'UFL PS5': '',
-    'UFL XBOX': '',
-  });
-  const [admin, setAdmin] = useState(false);
-  const [password, setPassword] = useState('');
-  const [search, setSearch] = useState('');
-  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+  const [adminMode, setAdminMode] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
 
- const refreshData = async () => {
-  try {
-    const fightersSnapshot = await getDocs(collection(db, 'fighters'));
-    const fightsSnapshot = await getDocs(collection(db, 'fights'));
-    const championsSnapshot = await getDocs(collection(db, 'champions'));
-
-    const fightersData = fightersSnapshot.docs.map(doc => doc.data() as Fighter);
-    const fightsData = fightsSnapshot.docs.map(doc => doc.data() as Fight);
-    const champsData = championsSnapshot.docs.map(doc => doc.data() as { platform: Platform; name: string });
-
-    setFighters(fightersData);
-    setFights(fightsData);
-
-    const formattedChamps: Record<Platform, string> = {
-      'UFL PC': '',
-      'UFL PS5': '',
-      'UFL XBOX': '',
-    };
-    champsData.forEach(c => {
-      formattedChamps[c.platform as Platform] = c.name;
-    });
-    setChampions(formattedChamps);
-  } catch (err) {
-    console.error('Firebase load failed, falling back to localStorage:', err);
-    const savedFighters = localStorage.getItem('fighters');
-    const savedFights = localStorage.getItem('fights');
-    const savedChampions = localStorage.getItem('champions');
-    if (savedFighters) setFighters(JSON.parse(savedFighters));
-    if (savedFights) setFights(JSON.parse(savedFights));
-    if (savedChampions) setChampions(JSON.parse(savedChampions));
-  }
-};
-
-useEffect(() => {
-  refreshData();
-}, []);
-
-  useEffect(() => {
-    localStorage.setItem('fighters', JSON.stringify(fighters));
-    localStorage.setItem('fights', JSON.stringify(fights));
-    localStorage.setItem('champions', JSON.stringify(champions));
-  }, [fighters, fights, champions]);
-  
-const addFighter = async (name: string, platform: Platform) => {
-  if (fighters.find(f => f.name === name && f.platform === platform)) {
-    return alert('Fighter already exists on this platform.');
-  }
-
-  const newFighter: Fighter = {
-    name,
-    platform,
-    wins: 0,
-    losses: 0,
-    draws: 0,
-    koWins: 0,
-    previousRank: 0,
+  const getSortedFighters = (platform: Platform) => {
+    return fighters
+      .filter(f => f.platform === platform && !f.champion)
+      .sort((a, b) => {
+        const scoreA = a.wins * 5 - a.losses * 2 + a.koWins;
+        const scoreB = b.wins * 5 - b.losses * 2 + b.koWins;
+        return scoreB - scoreA;
+      })
+      .slice(0, 15);
   };
 
-  try {
-    await setDoc(doc(db, 'fighters', `${name}-${platform}`), newFighter);
-    setFighters([...fighters, newFighter]);
-    await refreshData();
-  } catch (err) {
-    console.error('Insert error:', err);
-  }
-};
+  const handleDeleteFight = async (id: string) => {
+    console.log('Deleting fight:', id); // optional debug
+    await deleteDoc(doc(db, 'fights', id));
+    await fetchFights();    // refresh list after deletion
+    await fetchFighters();  // refresh records too
+  };  
+  
+  const handleAddFight = async () => {
+    const { fighter1, fighter2, winner, method, date, platform } = newFight;
+    if (!fighter1 || !fighter2 || !winner || !method || !date) return;
+  
+    await addDoc(collection(db, 'fights'), {
+      fighter1,
+      fighter2,
+      winner,
+      method,
+      date,
+      platform,
+    });
+  
+    await updateRecordsAfterFight(newFight); // update stats
+  
+    await fetchFighters(); // <-- Refresh fighters after update
+    await fetchFights();   // optional: refresh fights list
+  
+    setNewFight({
+      fighter1: '',
+      fighter2: '',
+      winner: '',
+      method: 'Decision',
+      date: '',
+      platform: 'UFL PC',
+    });
+  };     
 
-const addFight = async (fight: Fight) => {
-  const updatedFighters = fighters.map(f => {
-    if (f.name === fight.fighter1 || f.name === fight.fighter2) {
-      const isWinner = f.name === fight.winner;
-      const isDraw = fight.winner === 'Draw';
-      return {
-        ...f,
-        wins: f.wins + (isWinner ? 1 : 0),
-        losses: f.losses + (!isWinner && !isDraw ? 1 : 0),
-        draws: f.draws + (isDraw ? 1 : 0),
-        koWins: f.koWins + (isWinner && fight.method === 'KO' ? 1 : 0),
-      };
+  const handleAddFighter = async () => {
+    if (!newFighter.name.trim()) return;
+  
+    await setDoc(doc(db, 'fighters', `${newFighter.name}-${newFighter.platform}`), {
+      name: newFighter.name,
+      platform: newFighter.platform,
+      wins: 0,
+      losses: 0,
+      draws: 0,
+      koWins: 0,
+      champion: false,
+    });
+  
+    await fetchFighters();
+    setNewFighter({ name: '', platform: 'UFL PC' });
+  };  
+
+  const updateRecordsAfterFight = async (fight: Fight) => {
+    const updated = [...fighters];
+  
+    for (const f of updated) {
+      if (f.name === fight.fighter1 || f.name === fight.fighter2) {
+        const isWinner = f.name === fight.winner;
+        const isDraw = fight.method === 'Draw';
+        const isKO = fight.method === 'KO';
+  
+        f.wins += isWinner && !isDraw ? 1 : 0;
+        f.losses += !isWinner && !isDraw ? 1 : 0;
+        f.draws += isDraw ? 1 : 0;
+        f.koWins += isWinner && isKO ? 1 : 0;
+  
+        await updateDoc(doc(db, 'fighters', `${f.name}-${f.platform}`), {
+          wins: f.wins,
+          losses: f.losses,
+          draws: f.draws,
+          koWins: f.koWins,
+        });
+      }
     }
-    return f;
-  });
+  
+    await fetchFighters(); // ✅ Refresh fighters in UI
+  };   
 
-  try {
-    await addDoc(collection(db, 'fights'), fight);
-    for (const f of updatedFighters) {
-      await setDoc(doc(db, 'fighters', `${f.name}-${f.platform}`), f);
-    }
+  const updateFighterField = (
+    id: string,
+    field: keyof Fighter,
+    value: any
+  ) => {
+    setFighters((prev) =>
+      prev.map((f) => (f.id === id ? { ...f, [field]: value } : f))
+    );
+  };  
 
-    const newFights = [...fights, fight];
-    setFights(newFights);
-    await recalculateRecords(newFights); // ✅ accurate and recalculated
-    await refreshData(); // ✅ pull synced data
-  } catch (err) {
-    console.error('Add fight error:', err);
-  }
-};
-
-const deleteFight = async (index: number) => {
-  const fight = fights[index];
-  const remainingFights = fights.filter((_, i) => i !== index);
-  setFights(remainingFights);
-  recalculateRecords(remainingFights);
-  const updatedFighters = fighters.map(f => {
-  const relevantFights = remainingFights.filter(
-    fight => (fight.fighter1 === f.name || fight.fighter2 === f.name) && fight.platform === f.platform
-  );
-
-  let wins = 0,
-    losses = 0,
-    draws = 0,
-    koWins = 0;
-
-  relevantFights.forEach(fight => {
-    const isWinner = fight.winner === f.name;
-    const isDraw = fight.winner === 'Draw';
-    const isLoser = !isWinner && !isDraw && (fight.fighter1 === f.name || fight.fighter2 === f.name);
-
-    if (isWinner) {
-      wins++;
-      if (fight.method === 'KO') koWins++;
-    } else if (isLoser) {
-      losses++;
-    } else if (isDraw) {
-      draws++;
-    }
-  });
-
-  return { ...f, wins, losses, draws, koWins };
+// Admin form state
+const [newFighter, setNewFighter] = useState({ name: '', platform: 'UFL PC' as Platform });
+const [newFight, setNewFight] = useState<Fight>({
+  id: '',               // ✅ ADD THIS
+  fighter1: '',
+  fighter2: '',
+  winner: '',
+  method: 'Decision',
+  platform: 'UFL PC',
+  date: '',
 });
 
-// Update Firebase with recalculated records
-for (const f of updatedFighters) {
-  await setDoc(doc(db, 'fighters', `${f.name}-${f.platform}`), f);
-}
+const [fighterSearch1, setFighterSearch1] = useState('');
+const [fighterSearch2, setFighterSearch2] = useState('');
+const [searchFighter, setSearchFighter] = useState('');
+const [searchFight, setSearchFight] = useState('');
 
-setFighters(updatedFighters);
+const fetchFights = async () => {
+  const snapshot = await getDocs(collection(db, 'fights'));
+  const data = snapshot.docs.map(doc => ({
+    id: doc.id, // ✅ Needed for deleting/editing
+    ...doc.data()
+  })) as Fight[];
 
-  try {
-    const allFightsSnapshot = await getDocs(collection(db, 'fights'));
-    const matchingDoc = allFightsSnapshot.docs.find(
-      d => {
-        const data = d.data();
-        return (
-          data.fighter1 === fight.fighter1 &&
-          data.fighter2 === fight.fighter2 &&
-          data.date === fight.date &&
-          data.platform === fight.platform
-        );
-      }
+  setFights(data);
+};
+
+  const getFighterStats = (name: string) => {
+    const fighterFights = fights.filter(
+      f => f.fighter1 === name || f.fighter2 === name
     );
-
-    if (matchingDoc) {
-      await deleteDoc(doc(db, 'fights', matchingDoc.id));
-    }
-
-    await refreshData();
-  } catch (err) {
-    console.error('Delete fight error:', err);
-  }
-};
-
- const editFighterName = async (oldName: string, newName: string) => {
-  if (!newName || fighters.some(f => f.name === newName)) {
-    return alert("Invalid or duplicate name.");
-  }
-
-  const fighter = fighters.find(f => f.name === oldName);
-  if (!fighter) return;
-
-  const updatedFighter = { ...fighter, name: newName };
-
-  try {
-    await deleteDoc(doc(db, 'fighters', `${oldName}-${fighter.platform}`));
-    await setDoc(doc(db, 'fighters', `${newName}-${fighter.platform}`), updatedFighter);
-
-    const updatedFights = fights.map(f => ({
-      ...f,
-      fighter1: f.fighter1 === oldName ? newName : f.fighter1,
-      fighter2: f.fighter2 === oldName ? newName : f.fighter2,
-      winner: f.winner === oldName ? newName : f.winner
-    }));
-
-    const allFightsSnapshot = await getDocs(collection(db, 'fights'));
-    for (const docSnap of allFightsSnapshot.docs) {
-      const data = docSnap.data();
-      const isInvolved = [data.fighter1, data.fighter2, data.winner].includes(oldName);
-      if (isInvolved) {
-        const updated = {
-          ...data,
-          fighter1: data.fighter1 === oldName ? newName : data.fighter1,
-          fighter2: data.fighter2 === oldName ? newName : data.fighter2,
-          winner: data.winner === oldName ? newName : data.winner,
-        };
-        await setDoc(doc(db, 'fights', docSnap.id), updated);
-      }
-    }
-
-    setFights(updatedFights);
-    await recalculateRecords(updatedFights);
-
-    const updatedChamps = { ...champions };
-    for (const p of platforms) {
-      if (updatedChamps[p] === oldName) updatedChamps[p] = newName;
-    }
-    setChampions(updatedChamps);
-  } catch (err) {
-    console.error('Edit name error:', err);
-  }
-};
-
-const setChampion = async (platform: Platform, name: string) => {
-  const updatedChamps = { ...champions, [platform]: name };
-  setChampions(updatedChamps);
-
-  try {
-    await setDoc(doc(db, 'champions', platform), {
-      platform,
-      name,
-    });
-  } catch (err) {
-    console.error('Champion update error:', err);
-  }
-};
-
-  const deleteFighter = async (name: string) => {
-  const fighter = fighters.find(f => f.name === name);
-  if (!fighter) return;
-
-  try {
-    await deleteDoc(doc(db, 'fighters', `${fighter.name}-${fighter.platform}`));
-    const updatedFighters = fighters.filter(f => f.name !== name);
-    setFighters(updatedFighters);
-
-    // Delete related fights
-    const remainingFights = fights.filter(
-      fight => fight.fighter1 !== name && fight.fighter2 !== name
-    );
-    setFights(remainingFights);
-    await recalculateRecords(remainingFights);
-
-    const allFightsSnapshot = await getDocs(collection(db, 'fights'));
-    for (const docSnap of allFightsSnapshot.docs) {
-      const data = docSnap.data();
-      if (data.fighter1 === name || data.fighter2 === name) {
-        await deleteDoc(doc(db, 'fights', docSnap.id));
-      }
-    }
-
-    const updatedChamps = { ...champions };
-    for (const platform of platforms) {
-      if (updatedChamps[platform] === name) {
-        updatedChamps[platform] = '';
-        await setDoc(doc(db, 'champions', platform), { platform, name: '' });
-      }
-    }
-    setChampions(updatedChamps);
-  } catch (err) {
-    console.error('Delete fighter error:', err);
-  }
-};
-
-  const rankedFighters = (platform: Platform) => {
-  const now = new Date();
-
-  const platformFighters = fighters.filter(
-    f => f.platform === platform && f.name !== champions[platform]
-  );
-
-  const scoredFighters = platformFighters.map(f => {
-    // Get all fights involving this fighter on this platform
-    const relevantFights = fights.filter(
-      fight =>
-        fight.platform === platform &&
-        (fight.fighter1 === f.name || fight.fighter2 === f.name)
-    );
-
-    // Quality of opponents beaten
-    const quality = relevantFights.reduce((acc, fight) => {
-      if (fight.winner === f.name) {
-        const opponentName = fight.fighter1 === f.name ? fight.fighter2 : fight.fighter1;
-        const opponent = fighters.find(o => o.name === opponentName && o.platform === platform);
-        return acc + (opponent ? opponent.wins : 0);
-      }
-      return acc;
-    }, 0);
-
-    // Recency bonus (only for wins in last 20 days)
-    const recencyBonus = relevantFights.reduce((acc, fight) => {
-      if (fight.winner === f.name) {
-        const fightDate = new Date(fight.date);
-        const daysAgo = (now.getTime() - fightDate.getTime()) / (1000 * 60 * 60 * 24);
-        if (daysAgo <= 20) {
-          acc += 2; // Boost for recent activity
-        }
-      }
-      return acc;
-    }, 0);
-
-    const score = f.wins * 5 + quality - f.losses * 2 + recencyBonus;
-
-    return { ...f, score };
-  });
-
-  // Sort by score descending
-  scoredFighters.sort((a, b) => b.score - a.score);
-
-  // Apply head-to-head override (bump a fighter above someone they beat recently)
-  for (let i = 0; i < scoredFighters.length; i++) {
-    const fighterA = scoredFighters[i];
-    for (let j = i + 1; j < scoredFighters.length; j++) {
-      const fighterB = scoredFighters[j];
-
-      const recentFight = fights.find(fight => {
-        const involved = 
-          (fight.fighter1 === fighterA.name && fight.fighter2 === fighterB.name) ||
-          (fight.fighter2 === fighterA.name && fight.fighter1 === fighterB.name);
-        const recent = (new Date().getTime() - new Date(fight.date).getTime()) / (1000 * 60 * 60 * 24) <= 20;
-        return involved && recent && fight.winner === fighterA.name && fight.platform === platform;
-      });
-
-      if (recentFight) {
-        // Move Fighter A above Fighter B
-        scoredFighters.splice(j, 1);
-        scoredFighters.splice(i, 0, fighterB);
-        // Rerun from start due to mutation
-        return scoredFighters.slice(0, 10);
-      }
-    }
-  }
-
-  return scoredFighters.slice(0, 10);
-};
   
-const recalculateRecords = async (
-  fightsToUse: Fight[],
-  fighterList: Fighter[] = fighters
-) => {
-  const updatedFighters = fighterList.map(f => {
-    const relevantFights = fightsToUse.filter(
-      fight =>
-        (fight.fighter1 === f.name || fight.fighter2 === f.name) &&
-        fight.platform === f.platform
-    );
-
-    let wins = 0,
-      losses = 0,
-      draws = 0,
-      koWins = 0;
-
-    relevantFights.forEach(fight => {
-      const isWinner = fight.winner === f.name;
-      const isDraw = fight.winner === 'Draw';
-      const isLoser =
-        !isWinner &&
-        !isDraw &&
-        (fight.fighter1 === f.name || fight.fighter2 === f.name);
-
-      if (isWinner) {
-        wins++;
-        if (fight.method === 'KO') koWins++;
-      } else if (isLoser) {
-        losses++;
-      } else if (isDraw) {
+    let wins = 0, losses = 0, draws = 0, koWins = 0;
+  
+    fighterFights.forEach(f => {
+      if (f.method === 'Draw') {
         draws++;
+      } else if (f.winner === name) {
+        wins++;
+        if (f.method === 'KO') koWins++;
+      } else {
+        losses++;
       }
     });
+  
+    return { wins, losses, draws, koWins };
+  };  
 
-    return { ...f, wins, losses, draws, koWins };
-  });
+  const addFighter = async () => {
+    if (!newFighter.name) return;
+    const exists = fighters.find(f => f.name === newFighter.name);
+    if (exists) return alert('Fighter already exists!');
+    const fighter: Fighter = { ...newFighter, wins: 0, losses: 0, draws: 0, koWins: 0, previousRank: 0 };
+    await addDoc(collection(db, 'fighters'), fighter);
+    fetchFighters();
+    setNewFighter({ name: '', platform: 'UFL PC' });
+  };
 
-  setFighters(updatedFighters);
+  const addFight = async () => {
+    const f1 = fighters.find(f => f.name === newFight.fighter1);
+    const f2 = fighters.find(f => f.name === newFight.fighter2);
+    if (!f1 || !f2) return alert('Fighters must exist');
 
-  // ✅ Save updated records to Firebase
-  for (const f of updatedFighters) {
-    await setDoc(doc(db, 'fighters', `${f.name}-${f.platform}`), f);
-  }
+    // Update records
+    const updatedFighters = fighters.map(f => {
+      if (f.name === newFight.fighter1 || f.name === newFight.fighter2) {
+        const isWinner = f.name === newFight.winner;
+        const isDraw = newFight.method === 'Draw';
+        return {
+          ...f,
+          wins: isWinner && !isDraw ? f.wins + 1 : f.wins,
+          losses: !isWinner && !isDraw ? f.losses + 1 : f.losses,
+          draws: isDraw ? f.draws + 1 : f.draws,
+          koWins: isWinner && newFight.method === 'KO' ? f.koWins + 1 : f.koWins,
+        };
+      }
+      return f;
+    });
+
+    // Save updated fighters
+    const snapshot = await getDocs(collection(db, 'fighters'));
+    snapshot.docs.forEach(async d => {
+      const data = d.data() as Fighter;
+      const updated = updatedFighters.find(f => f.name === data.name);
+      if (updated) await updateDoc(doc(db, 'fighters', d.id), updated);
+    });
+
+    await addDoc(collection(db, 'fights'), newFight);
+    setNewFight({ fighter1: '', fighter2: '', winner: '', method: 'Decision', platform: 'UFL PC', date: '' });
+    fetchFights();
+    fetchFighters();
+  };
+
+  const calculateRanking = (platform: Platform) => {
+    const platformFighters = fighters.filter(f => f.platform === platform);
+    const scores = platformFighters.map(f => {
+      const recentFights = fights.filter(fight => fight.platform === platform);
+      const opponents = recentFights.filter(
+        fight => fight.winner === f.name
+      ).map(fight => {
+        const opponentName = fight.fighter1 === f.name ? fight.fighter2 : fight.fighter1;
+        return fighters.find(x => x.name === opponentName)?.wins || 0;
+      });
+      const quality = opponents.reduce((a, b) => a + b, 0);
+      return {
+        fighter: f,
+        score: f.wins * 5 - f.losses * 2 + quality,
+      };
+    });
+
+    scores.sort((a, b) => b.score - a.score);
+    return scores.map(s => s.fighter);
+  };
+
+  const handlePasswordSubmit = () => {
+    if (passwordInput === 'G36DSFGB3873GFDIY38HS9I34G') setAdminMode(true);
+    setPasswordInput('');
+  };
+
+// ✅ Step 1: fetchFighters defined BEFORE useEffect
+const fetchFighters = async () => {
+  const snapshot = await getDocs(collection(db, 'fighters'));
+  const data = snapshot.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data(),
+  })) as Fighter[];
+
+  setFighters(data);
 };
+
+// ✅ Step 2: useEffect calls it safely
+useEffect(() => {
+  fetchFighters();
+  fetchFights();
+}, []);
 
   return (
-    <main className="p-4 text-white bg-gradient-to-br from-gray-900 to-black min-h-screen">
-      <h1 className="text-4xl font-bold text-center text-cyan-400 mb-6">UFL WORLD RANKINGS</h1>
-      <nav className="flex flex-wrap justify-center gap-4 mb-6">
-        {['Records', ...platforms, 'Fights', 'Admin'].map(t => (
-          <button key={t} onClick={() => setTab(t as any)} className="px-4 py-2 rounded bg-gray-800 hover:bg-gray-700">
+    <div className="min-h-screen bg-gradient-to-b from-black via-gray-900 to-black text-white p-4">
+      <div className="text-center text-4xl font-bold mb-6">UFL World Rankings</div>
+
+      <div className="flex justify-center gap-4 mb-6 flex-wrap">
+        {tabs.map(t => (
+          <motion.button
+            key={t}
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.95 }}
+            className={`px-4 py-2 rounded-2xl text-lg shadow-md ${
+              tab === t ? 'bg-white text-black' : 'bg-gray-800'
+            }`}
+            onClick={() => setTab(t)}
+          >
             {t}
-          </button>
+          </motion.button>
         ))}
-      </nav>
+      </div>
 
-      {/* Admin Panel */}
-      {tab === 'Admin' && (
-        <div>
-          {!admin ? (
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={tab}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          transition={{ duration: 0.3 }}
+          className="max-w-4xl mx-auto"
+        >
+{tab === 'Records' && (
+  <div className="space-y-4">
+    {fighters
+      .filter(f => f.name?.trim())
+      .map(f => {
+        const stats = getFighterStats(f.name);
+        return (
+          <div key={f.name} className="bg-gray-800 p-4 rounded-xl shadow-lg flex justify-between items-center">
             <div>
-              <input
-                className="p-2 bg-gray-800 border border-gray-600"
-                placeholder="Enter Admin Password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-              />
-              <button
-                onClick={() => setAdmin(password === 'G36DSFGB3873GFDIY38HS9I34G')}
-                className="ml-2 px-4 py-2 bg-green-600 rounded"
-              >Login</button>
+              <div className="text-xl font-semibold">{f.name}</div>
+              <div className="text-sm text-gray-300">{f.platform}</div>
             </div>
-          ) : (
-            <div className="space-y-6">
-              <div>
-                <h2 className="text-xl font-bold">Add Fighter</h2>
-                <input placeholder="Name" id="name" className="p-2 bg-gray-800 border" />
-                <select id="platform" className="ml-2 p-2 bg-gray-800 border">
-                  {platforms.map(p => <option key={p}>{p}</option>)}
-                </select>
-                <button
-                  className="ml-2 px-4 py-2 bg-blue-600 rounded"
-                  onClick={() => {
-                    const nameInput = document.getElementById('name') as HTMLInputElement;
-                    const platformSelect = document.getElementById('platform') as HTMLSelectElement;
-                    addFighter(nameInput.value, platformSelect.value as Platform);
-                  }}
-                >Add</button>
-                <div>
-  <h2 className="text-xl font-bold">Add Fight</h2>
-  <select id="fighter1" className="p-2 bg-gray-800 border mr-2">
-    {fighters.map(f => <option key={f.name}>{f.name}</option>)}
-  </select>
-  <select id="fighter2" className="p-2 bg-gray-800 border mr-2">
-    {fighters.map(f => <option key={f.name}>{f.name}</option>)}
-  </select>
-  <select id="winner" className="p-2 bg-gray-800 border mr-2">
-    <option>Draw</option>
-    {fighters.map(f => <option key={f.name}>{f.name}</option>)}
-  </select>
-  <select id="method" className="p-2 bg-gray-800 border mr-2">
-    <option>KO</option>
-    <option>Decision</option>
-    <option>Draw</option>
-  </select>
-  <select id="platformFight" className="p-2 bg-gray-800 border mr-2">
-    {platforms.map(p => <option key={p}>{p}</option>)}
-  </select>
-  <input id="date" type="date" className="p-2 bg-gray-800 border mr-2" />
-  <button
-    className="px-4 py-2 bg-green-600 rounded"
-    onClick={() => {
-      const fighter1 = (document.getElementById('fighter1') as HTMLSelectElement).value;
-      const fighter2 = (document.getElementById('fighter2') as HTMLSelectElement).value;
-      const winner = (document.getElementById('winner') as HTMLSelectElement).value;
-      const method = (document.getElementById('method') as HTMLSelectElement).value as 'KO' | 'Decision' | 'Draw';
-      const platform = (document.getElementById('platformFight') as HTMLSelectElement).value as Platform;
-      const date = (document.getElementById('date') as HTMLInputElement).value;
-
-      if (!fighter1 || !fighter2 || !method || !platform || !date) {
-        return alert('Please fill out all fields.');
-      }
-      if (fighter1 === fighter2) {
-        return alert('Fighter cannot fight themselves.');
-      }
-
-      addFight({ fighter1, fighter2, winner, method, platform, date });
-    }}
-  >
-    Add Fight
-  </button>
-</div>
-              </div>
-              <div>
-                <h2 className="text-xl font-bold">Set Champion</h2>
-                {platforms.map(p => (
-                  <div key={p} className="mb-2">
-                    <span>{p}: </span>
-                    <select
-                      onChange={e => setChampion(p, e.target.value)}
-                      value={champions[p] || ''}
-                      className="p-2 bg-gray-800 border"
-                    >
-                      <option value="">None</option>
-                      {fighters.filter(f => f.platform === p).map(f => (
-                        <option key={f.name}>{f.name}</option>
-                      ))}
-                    </select>
-                  </div>
-              
-                ))}
-              </div>
-              <div>
-                <div className="mt-6">
-  <h2 className="text-xl font-bold">Edit Fighter Name</h2>
-  <select id="editFighterOld" className="p-2 bg-gray-800 border mr-2">
-    {fighters.map(f => (
-      <option key={f.name}>{f.name}</option>
-    ))}
-  </select>
-  <input
-    id="editFighterNew"
-    placeholder="New Name"
-    className="p-2 bg-gray-800 border mr-2"
-  />
-  <button
-    className="px-4 py-2 bg-yellow-600 rounded"
-    onClick={() => {
-      const oldName = (document.getElementById('editFighterOld') as HTMLSelectElement).value;
-      const newName = (document.getElementById('editFighterNew') as HTMLInputElement).value;
-      editFighterName(oldName, newName);
-    }}
-  >
-    Edit Name
-  </button>
-</div>
-                <h2 className="text-xl font-bold">Delete Fighter</h2>
-                <select id="deleteFighter" className="p-2 bg-gray-800 border">
-                  {fighters.map(f => (
-                    <option key={f.name} value={f.name}>{f.name}</option>
-                  ))}
-                </select>
-                <button
-                  className="ml-2 px-4 py-2 bg-red-600 rounded"
-                  onClick={() => {
-                    const selected = (document.getElementById('deleteFighter') as HTMLSelectElement).value;
-                    if (window.confirm(`Are you sure you want to delete ${selected}?`)) {
-                      deleteFighter(selected);
-                    }
-                  }}
-                >Delete</button>
-              </div>
+            <div className="text-right">
+              <div>W: {stats.wins} | L: {stats.losses} | D: {stats.draws}</div>
+              <div>KO Wins: {stats.koWins}</div>
             </div>
-          )}
-        </div>
-      )}
-
-      {/* Existing Tabs */}
-      {tab === 'Records' && (
-        <div>
-          <input
-            className="mb-4 p-2 bg-gray-800 border border-gray-600"
-            placeholder="Search Fighters..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {fighters.filter(f => f.name.toLowerCase().includes(search.toLowerCase())).map(f => (
-              <div key={f.name} className="bg-gray-800 p-4 rounded-xl shadow">
-                <h2 className="text-xl font-bold text-cyan-400">{f.name}</h2>
-                <p>Platform: {f.platform}</p>
-                <p>Wins: {f.wins}</p>
-                <p>Losses: {f.losses}</p>
-                <p>Draws: {f.draws}</p>
-                <p>KO %: {f.wins > 0 ? ((f.koWins / f.wins) * 100).toFixed(1) : 0}%</p>
-              </div>
-            ))}
           </div>
-        </div>
-      )}
-
-      {platforms.includes(tab as Platform) && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <div className="col-span-full text-2xl font-bold mb-2">
-            Champion: 🏆 {champions[tab as Platform] || 'None'}
-          </div>
-          {rankedFighters(tab as Platform).map((f, i) => (
-            <div key={f.name} className="bg-gray-800 p-4 rounded-xl shadow">
-              <h2 className="text-xl font-bold">#{i + 1} {f.name}</h2>
-              <p>Wins: {f.wins}</p>
-              <p>Losses: {f.losses}</p>
-              <p>Draws: {f.draws}</p>
-              <p>KO %: {f.wins > 0 ? ((f.koWins / f.wins) * 100).toFixed(1) : 0}%</p>
-            </div>
-          ))}
-        </div>
-      )}
-
-     {tab === 'Fights' && (
-  <div>
-    <input
-      className="mb-4 p-2 bg-gray-800 border border-gray-600"
-      placeholder="Search Fights..."
-      value={search}
-      onChange={e => setSearch(e.target.value)}
-    />
-    <div className="space-y-4">
-      {fights
-        .filter(fight =>
-          fight.fighter1.toLowerCase().includes(search.toLowerCase()) ||
-          fight.fighter2.toLowerCase().includes(search.toLowerCase())
-        )
-        .map((fight, i) => (
-          <div key={i} className="bg-gray-800 p-4 rounded-xl shadow">
-            <p>{fight.fighter1} vs {fight.fighter2}</p>
-            <p>Winner: {fight.winner}</p>
-            <p>Method: {fight.method}</p>
-            <p>Platform: {fight.platform}</p>
-            <p>Date: {fight.date}</p>
-            {admin && (
-  <>
-    <button
-      className="mt-2 mr-2 px-3 py-1 bg-yellow-600 rounded text-sm"
-      onClick={() => {
-        (async () => {
-          const newWinner = prompt('Edit Winner:', fight.winner);
-          const newMethod = prompt('Edit Method (KO, Decision, Draw):', fight.method);
-          const newDate = prompt('Edit Date (YYYY-MM-DD):', fight.date);
-
-          if (!newWinner || !newMethod || !newDate) return;
-
-          const updatedFights = [...fights];
-          updatedFights[i] = {
-            ...fight,
-            winner: newWinner,
-            method: newMethod as 'KO' | 'Decision' | 'Draw',
-            date: newDate,
-          };
-          setFights(updatedFights);
-          await recalculateRecords(updatedFights);
-
-          const allFightsSnapshot = await getDocs(collection(db, 'fights'));
-          const fightDoc = allFightsSnapshot.docs.find(d => {
-            const data = d.data();
-            return (
-              data.fighter1 === fight.fighter1 &&
-              data.fighter2 === fight.fighter2 &&
-              data.date === fight.date &&
-              data.platform === fight.platform
-            );
-          });
-
-          if (fightDoc) {
-            await updateDoc(doc(db, 'fights', fightDoc.id), {
-              winner: newWinner,
-              method: newMethod,
-              date: newDate,
-            });
-          }
-        })();
-      }}
-    >
-      Edit
-    </button>
-    <button
-      className="mt-2 px-3 py-1 bg-red-600 rounded text-sm"
-      onClick={() => {
-        if (confirm('Are you sure you want to delete this fight?')) {
-          deleteFight(i);
-        }
-      }}
-    >
-      Delete
-    </button>
-  </>
-)}
-          </div>
-        ))}
-    </div>
+        );
+      })}
   </div>
 )}
 
-    </main>
-  );}
+          {tab === 'Fights' && (
+            <div className="space-y-4">
+              {fights.map((f, i) => (
+                <div key={i} className="bg-gray-800 p-4 rounded-xl shadow">
+                  <div className="font-semibold">{f.fighter1} vs {f.fighter2}</div>
+                  <div>Winner: {f.winner} by {f.method} on {f.date}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+{tab === 'UFL PC' && (
+  <>
+    <h2 className="text-2xl font-bold mb-4">👑 Champion</h2>
+    {fighters
+      .filter(f => f.platform === 'UFL PC' && f.champion)
+      .map(f => (
+        <div key={f.name} className="bg-gray-800 text-white p-4 rounded mb-4">
+          <p className="text-xl font-bold">{f.name}</p>
+          <p>W: {f.wins} | L: {f.losses} | D: {f.draws} | KO: {f.koWins}</p>
+        </div>
+      ))}
+
+    <h2 className="text-2xl font-bold mb-2">Top 15 Contenders</h2>
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+      {fighters
+        .filter(f => f.platform === 'UFL PC' && !f.champion)
+        .sort((a, b) => {
+          const scoreA = a.wins * 5 - a.losses * 2 + a.koWins * 2;
+          const scoreB = b.wins * 5 - b.losses * 2 + b.koWins * 2;
+          return scoreB - scoreA;
+        })
+        .slice(0, 15)
+        .map((f, index) => (
+          <div key={f.name} className="bg-gray-800 text-white p-4 rounded">
+            <div className="flex justify-between mb-2">
+              <h3 className="text-lg font-semibold">{f.name}</h3>
+              <span className="text-sm text-gray-300">#{index + 1}</span>
+            </div>
+            {(() => {
+  const stats = getFighterStats(f.name);
+  return (
+    <>
+      <p>W: {stats.wins} | L: {stats.losses} | D: {stats.draws}</p>
+      <p>KO Wins: {stats.koWins}</p>
+    </>
+  );
+})()}
+          </div>
+        ))}
+    </div>
+  </>
+)}
+
+{tab === 'UFL PS5' && (
+  <>
+    <h2 className="text-2xl font-bold mb-4">👑 Champion</h2>
+    {fighters
+      .filter(f => f.platform === 'UFL PS5' && f.champion)
+      .map(f => (
+        <div key={f.name} className="bg-gray-800 text-white p-4 rounded mb-4">
+          <p className="text-xl font-bold">{f.name}</p>
+          <p>W: {f.wins} | L: {f.losses} | D: {f.draws} | KO: {f.koWins}</p>
+        </div>
+      ))}
+
+    <h2 className="text-2xl font-bold mb-2">Top 15 Contenders</h2>
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+      {fighters
+        .filter(f => f.platform === 'UFL PS5' && !f.champion)
+        .sort((a, b) => {
+          const scoreA = a.wins * 5 - a.losses * 2 + a.koWins * 2;
+          const scoreB = b.wins * 5 - b.losses * 2 + b.koWins * 2;
+          return scoreB - scoreA;
+        })
+        .slice(0, 15)
+        .map((f, index) => (
+          <div key={f.name} className="bg-gray-800 text-white p-4 rounded">
+            <div className="flex justify-between mb-2">
+              <h3 className="text-lg font-semibold">{f.name}</h3>
+              <span className="text-sm text-gray-300">#{index + 1}</span>
+            </div>
+            {(() => {
+  const stats = getFighterStats(f.name);
+  return (
+    <>
+      <p>W: {stats.wins} | L: {stats.losses} | D: {stats.draws}</p>
+      <p>KO Wins: {stats.koWins}</p>
+    </>
+  );
+})()}
+          </div>
+        ))}
+    </div>
+  </>
+)}
+
+{tab === 'UFL XBOX' && (
+  <>
+    <h2 className="text-2xl font-bold mb-4">👑 Champion</h2>
+    {fighters
+      .filter(f => f.platform === 'UFL XBOX' && f.champion)
+      .map(f => (
+        <div key={f.name} className="bg-gray-800 text-white p-4 rounded mb-4">
+          <p className="text-xl font-bold">{f.name}</p>
+          <p>W: {f.wins} | L: {f.losses} | D: {f.draws} | KO: {f.koWins}</p>
+        </div>
+      ))}
+
+    <h2 className="text-2xl font-bold mb-2">Top 15 Contenders</h2>
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+      {fighters
+        .filter(f => f.platform === 'UFL XBOX' && !f.champion)
+        .sort((a, b) => {
+          const scoreA = a.wins * 5 - a.losses * 2 + a.koWins * 2;
+          const scoreB = b.wins * 5 - b.losses * 2 + b.koWins * 2;
+          return scoreB - scoreA;
+        })
+        .slice(0, 15)
+        .map((f, index) => (
+          <div key={f.name} className="bg-gray-800 text-white p-4 rounded">
+            <div className="flex justify-between mb-2">
+              <h3 className="text-lg font-semibold">{f.name}</h3>
+              <span className="text-sm text-gray-300">#{index + 1}</span>
+            </div>
+            {(() => {
+  const stats = getFighterStats(f.name);
+  return (
+    <>
+      <p>W: {stats.wins} | L: {stats.losses} | D: {stats.draws}</p>
+      <p>KO Wins: {stats.koWins}</p>
+    </>
+  );
+})()}
+          </div>
+        ))}
+    </div>
+  </>
+)}
+
+{tab === 'Admin' && (
+  <div className="flex flex-col items-center gap-6 mt-4">
+    {!adminMode ? (
+      <div className="flex items-center gap-2">
+        <input
+          type="password"
+          placeholder="Enter admin password"
+          value={passwordInput}
+          onChange={e => setPasswordInput(e.target.value)}
+          className="bg-gray-700 px-4 py-2 rounded-xl"
+        />
+        <button onClick={handlePasswordSubmit} className="bg-blue-500 px-4 py-2 rounded-xl">Submit</button>
+      </div>
+    ) : (
+      <div className="w-full space-y-6">
+        <div className="text-center text-green-400 font-bold">Admin Mode ✅</div>
+
+        {/* ADD FIGHTER */}
+        <div className="bg-gray-800 p-4 rounded-xl space-y-2">
+          <h2 className="text-xl font-semibold">➕ Add Fighter</h2>
+          <input
+            type="text"
+            placeholder="Fighter Name"
+            value={newFighter.name}
+            onChange={e => setNewFighter({ ...newFighter, name: e.target.value })}
+            className="bg-gray-700 px-4 py-2 rounded-xl w-full"
+          />
+          <select
+            value={newFighter.platform}
+            onChange={e => setNewFighter({ ...newFighter, platform: e.target.value as Platform })}
+            className="bg-gray-700 px-4 py-2 rounded-xl w-full"
+          >
+            {platforms.map(p => <option key={p}>{p}</option>)}
+          </select>
+          <button onClick={addFighter} className="bg-green-600 px-4 py-2 rounded-xl w-full">Add Fighter</button>
+        </div>
+
+        {/* ADD FIGHT */}
+        <div className="bg-gray-800 p-4 rounded-xl space-y-2">
+          <h2 className="text-xl font-semibold">🥊 Add Fight</h2>
+
+          {/* Searchable Fighter 1 */}
+          <div className="relative w-full">
+            <input
+              type="text"
+              placeholder="Search Fighter 1"
+              className="bg-gray-700 px-4 py-2 rounded-xl w-full"
+              value={fighterSearch1}
+              onChange={e => setFighterSearch1(e.target.value)}
+            />
+            {fighterSearch1 && (
+              <ul className="absolute z-10 bg-gray-800 w-full mt-1 max-h-48 overflow-y-auto rounded-xl shadow">
+                {platforms.map(platform => {
+                  const filtered = fighters
+                    .filter(f =>
+                      f.platform === platform &&
+                      f.name.toLowerCase().includes(fighterSearch1.toLowerCase()) &&
+                      f.name !== newFight.fighter2
+                    )
+                    .sort((a, b) => a.name.localeCompare(b.name));
+                  if (!filtered.length) return null;
+                  return (
+                    <li key={platform} className="text-gray-400 px-4 pt-2 pb-1 text-sm">
+                      {platform}
+                      <ul>
+                        {filtered.map(f => (
+                          <li
+                            key={f.name}
+                            onClick={() => {
+                              setNewFight({ ...newFight, fighter1: f.name });
+                              setFighterSearch1(''); // ✅ closes dropdown
+                            }}                            
+                            className="cursor-pointer px-4 py-2 hover:bg-gray-700"
+                          >
+                            {f.name}
+                          </li>
+                        ))}
+                      </ul>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+
+          {/* Searchable Fighter 2 */}
+          <div className="relative w-full">
+            <input
+              type="text"
+              placeholder="Search Fighter 2"
+              className="bg-gray-700 px-4 py-2 rounded-xl w-full"
+              value={fighterSearch2}
+              onChange={e => setFighterSearch2(e.target.value)}
+            />
+            {fighterSearch2 && (
+              <ul className="absolute z-10 bg-gray-800 w-full mt-1 max-h-48 overflow-y-auto rounded-xl shadow">
+                {platforms.map(platform => {
+                  const filtered = fighters
+                    .filter(f =>
+                      f.platform === platform &&
+                      f.name.toLowerCase().includes(fighterSearch2.toLowerCase()) &&
+                      f.name !== newFight.fighter1
+                    )
+                    .sort((a, b) => a.name.localeCompare(b.name));
+                  if (!filtered.length) return null;
+                  return (
+                    <li key={platform} className="text-gray-400 px-4 pt-2 pb-1 text-sm">
+                      {platform}
+                      <ul>
+                        {filtered.map(f => (
+                          <li
+                            key={f.name}
+                            onClick={() => {
+                              setNewFight({ ...newFight, fighter2: f.name });
+                              setFighterSearch2(''); // ✅ closes dropdown
+                            }}                            
+                            className="cursor-pointer px-4 py-2 hover:bg-gray-700"
+                          >
+                            {f.name}
+                          </li>
+                        ))}
+                      </ul>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+
+          <select
+            value={newFight.winner}
+            onChange={e => setNewFight({ ...newFight, winner: e.target.value })}
+            className="bg-gray-700 px-4 py-2 rounded-xl w-full"
+          >
+            <option value="">Select Winner</option>
+            {[newFight.fighter1, newFight.fighter2].filter(Boolean).map(name => (
+              <option key={name}>{name}</option>
+            ))}
+          </select>
+
+          <select
+            value={newFight.method}
+            onChange={e => setNewFight({ ...newFight, method: e.target.value as Fight['method'] })}
+            className="bg-gray-700 px-4 py-2 rounded-xl w-full"
+          >
+            <option>KO</option>
+            <option>Decision</option>
+            <option>Draw</option>
+          </select>
+
+          <input
+            type="date"
+            value={newFight.date}
+            onChange={e => setNewFight({ ...newFight, date: e.target.value })}
+            className="bg-gray-700 px-4 py-2 rounded-xl w-full"
+          />
+
+          <select
+            value={newFight.platform}
+            onChange={e => setNewFight({ ...newFight, platform: e.target.value as Platform })}
+            className="bg-gray-700 px-4 py-2 rounded-xl w-full"
+          >
+            {platforms.map(p => <option key={p}>{p}</option>)}
+          </select>
+
+          <button onClick={addFight} className="bg-red-600 px-4 py-2 rounded-xl w-full">Submit Fight</button>
+        </div>
+
+{/* MANAGE FIGHTERS */}
+<div className="bg-gray-800 p-4 rounded-xl space-y-4">
+  <h2 className="text-xl font-semibold">🧠 Manage Fighters</h2>
+  <input
+    type="text"
+    placeholder="Search fighters..."
+    className="bg-gray-700 px-4 py-2 rounded-xl w-full"
+    value={searchFighter}
+    onChange={e => setSearchFighter(e.target.value)}
+  />
+  {fighters
+    .filter(
+      f => f.name?.trim() && f.name.toLowerCase().includes(searchFighter.toLowerCase())
+    )
+    .map((f, i) => (
+      <div
+        key={f.id}
+        className="bg-gray-900 p-3 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"
+      >
+        {/* Name and Platform Select */}
+        <div className="flex-1 space-y-1">
+          <input
+            type="text"
+            value={f.name}
+            onChange={e => {
+              const updatedFighters = fighters.map((fighter, index) =>
+                index === i ? { ...fighter, name: e.target.value } : fighter
+              );
+              setFighters(updatedFighters);
+            }}
+            className="bg-gray-700 px-3 py-1 rounded w-full"
+          />
+<select
+  value={f.platform}
+  onChange={(e) =>
+    updateFighterField(f.id!, 'platform', e.target.value as Platform)
+  }
+  className="rounded px-2 py-1 w-full bg-gray-700 text-white border border-gray-600 appearance-none"
+>
+  {platforms.map((p) => (
+    <option key={p} value={p}>
+      {p}
+    </option>
+  ))}
+</select>
+
+        </div>
+
+        {/* Champion Toggle */}
+        <button
+          onClick={async () => {
+            await updateDoc(doc(db, 'fighters', f.id), {
+              ...f,
+              champion: !f.champion,
+            });
+            fetchFighters();
+          }}
+          className={`px-3 py-1 rounded-xl font-bold ${
+            f.champion ? 'bg-yellow-500 text-black' : 'bg-gray-600'
+          }`}
+        >
+          {f.champion ? '✅ Champion' : '👑 Make Champion'}
+        </button>
+
+        {/* Save/Delete */}
+        <div className="flex gap-2">
+        <button
+  onClick={async () => {
+    // Delete old doc
+    await deleteDoc(doc(db, 'fighters', f.id));
+
+    // Create new doc with new ID (name-platform)
+    const newId = `${f.name}-${f.platform}`;
+    await setDoc(doc(db, 'fighters', newId), {
+      name: f.name,
+      platform: f.platform,
+      wins: f.wins,
+      losses: f.losses,
+      draws: f.draws,
+      koWins: f.koWins,
+      champion: f.champion ?? false,
+    });
+
+    fetchFighters();
+  }}
+  className="bg-green-500 text-white px-3 py-1 rounded"
+>
+  Save
+</button>
+
+          <button
+            onClick={async () => {
+              await deleteDoc(doc(db, 'fighters', f.id));
+              fetchFighters();
+            }}
+            className="bg-red-600 px-3 py-1 rounded-xl"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    ))}
+</div>
+
+        {/* MANAGE FIGHTS */}
+        <div className="bg-gray-800 p-4 rounded-xl space-y-4">
+          <h2 className="text-xl font-semibold">📜 Manage Fights</h2>
+          <input
+            type="text"
+            placeholder="Search fights by fighter or date..."
+            className="bg-gray-700 px-4 py-2 rounded-xl w-full"
+            value={searchFight}
+            onChange={e => setSearchFight(e.target.value)}
+          />
+          {fights
+            .filter(f =>
+              f.fighter1.toLowerCase().includes(searchFight.toLowerCase()) ||
+              f.fighter2.toLowerCase().includes(searchFight.toLowerCase()) ||
+              f.date.includes(searchFight)
+            )
+            .map((fight, index) => (
+              <div
+                key={index}
+                className="bg-gray-900 p-3 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"
+              >
+                <div className="text-sm flex-1">
+                  <div className="font-semibold">{fight.fighter1} vs {fight.fighter2}</div>
+                  <div>Winner: {fight.winner} | Method: {fight.method} | Date: {fight.date}</div>
+                </div>
+                <button
+onClick={() => handleDeleteFight(fight.id)}
+  className="bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded"
+>
+  Delete
+</button>
+              </div>
+            ))}
+        </div>
+      </div>
+    )}
+  </div>
+)}
+        </motion.div>
+      </AnimatePresence>
+    </div>
+  );
+}
