@@ -199,12 +199,16 @@ const fetchFights = async () => {
     if (!newFighter.name) return;
     const exists = fighters.find(f => f.name === newFighter.name);
     if (exists) return alert('Fighter already exists!');
-    const fighter: Fighter = { ...newFighter, wins: 0, losses: 0, draws: 0, koWins: 0, previousRank: 0 };
-    await addDoc(collection(db, 'fighters'), fighter);
-    fetchFighters();
-    setNewFighter({ name: '', platform: 'UFL PC' });
-  };
-
+const fighter: Fighter = {
+  ...newFighter,
+  id: crypto.randomUUID(),
+  champion: false,          
+  wins: 0,
+  losses: 0,
+  draws: 0,
+  koWins: 0,
+  previousRank: 0,
+};
   const addFight = async () => {
     const f1 = fighters.find(f => f.name === newFight.fighter1);
     const f2 = fighters.find(f => f.name === newFight.fighter2);
