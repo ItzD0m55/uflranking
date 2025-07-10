@@ -73,7 +73,8 @@ export default function Home() {
       if (changed) {
         await updateDoc(doc(db, 'fights', docSnap.id), updatedFight);
       }
-
+    });
+  
     await Promise.all(updates);
   };  
 
@@ -111,13 +112,14 @@ export default function Home() {
         ) {
           losses++;
         }
-
+      });
+  
       await updateDoc(doc(db, 'fighters', fighter.firebaseId), {
         wins,
         losses,
         draws,
         koWins,
-
+      });
     }
   
     await fetchFighters(); // Refresh state
@@ -134,7 +136,8 @@ export default function Home() {
         ...f,
         score: f.wins * 5 - f.losses * 2 + qualityScore + recencyBonus,
       };
-
+    });
+  
     const sorted = scored.sort((a, b) => b.score - a.score);
     const recentFights = fights.filter(f => f.platform === platform);
   
@@ -186,20 +189,22 @@ export default function Home() {
       method,
       date,
       platform,
-
+    });
+  
     await updateRecordsAfterFight(newFight); // update stats
   
     await fetchFighters(); // <-- Refresh fighters after update
     await fetchFights();   // optional: refresh fights list
   
     setNewFight({
+  id: crypto.randomUUID(),
   fighter1: '',
   fighter2: '',
   winner: '',
       method: 'Decision',
       date: '',
       platform: 'UFL PC',
-
+    });
   };     
 
   const handleAddFighter = async () => {
@@ -213,7 +218,8 @@ export default function Home() {
       draws: 0,
       koWins: 0,
       champion: false,
-
+    });
+  
     await fetchFighters();
     setNewFighter({ name: '', platform: 'UFL PC' });
   };  
@@ -237,7 +243,7 @@ export default function Home() {
           losses: f.losses,
           draws: f.draws,
           koWins: f.koWins,
-
+        });
       }
     }
   
@@ -250,7 +256,7 @@ export default function Home() {
     value: any
   ) => {
     setFighters((prev) =>
-    prev.map((f) => (f.firebaseId === id ? { ...f, [field]: value } : f))
+      prev.map((f) => (f.id === id ? { ...f, [field]: value } : f))
     );
   };  
 
@@ -264,6 +270,7 @@ const [newFight, setNewFight] = useState<Fight>({
   method: 'Decision',
   platform: 'UFL PC',
   date: '',
+});
 
 const [fighterSearch1, setFighterSearch1] = useState('');
 const [fighterSearch2, setFighterSearch2] = useState('');
@@ -295,14 +302,41 @@ const fetchFights = async () => {
       } else {
         losses++;
       }
-
+    });
+  
     return { wins, losses, draws, koWins };
   };  
 
-      
+  const addFighter = async () => {
+    if (!newFighter.name) return;
+    const exists = fighters.find(f => f.name === newFighter.name && f.platform === newFighter.platform);
+    if (exists) return alert('Fighter with this name already exists on this platform!');
+    const fighter: Fighter = { ...newFighter, id: crypto.randomUUID(), wins: 0, losses: 0, draws: 0, koWins: 0, previousRank: 0, champion: false };
+    await addDoc(collection(db, 'fighters'), fighter);
+    fetchFighters();
+    setNewFighter({ name: '', platform: 'UFL PC' });
+  };
 
-  
+  const addFight = async () => {
+    const f1 = fighters.find(f => f.name === newFight.fighter1);
+    const f2 = fighters.find(f => f.name === newFight.fighter2);
+    if (!f1 || !f2) return alert('Fighters must exist');
+
+    // Update records
+    const updatedFighters = fighters.map(f => {
+      if (f.name === newFight.fighter1 || f.name === newFight.fighter2) {
+        const isWinner = f.name === newFight.winner;
+        const isDraw = newFight.method === 'Draw';
+        return {
+          ...f,
+          wins: isWinner && !isDraw ? f.wins + 1 : f.wins,
+          losses: !isWinner && !isDraw ? f.losses + 1 : f.losses,
+          draws: isDraw ? f.draws + 1 : f.draws,
+          koWins: isWinner && newFight.method === 'KO' ? f.koWins + 1 : f.koWins,
+        };
       }
+      return f;
+    });
 
     // Save updated fighters
     const snapshot = await getDocs(collection(db, 'fighters'));
@@ -310,9 +344,11 @@ const fetchFights = async () => {
       const data = d.data() as Fighter;
       const updated = updatedFighters.find(f => f.name === data.name);
       if (updated) await updateDoc(doc(db, 'fighters', d.id), updated);
+    });
 
     await addDoc(collection(db, 'fights'), newFight);
     setNewFight({
+  id: crypto.randomUUID(),
   fighter1: '',
   fighter2: '',
   winner: '', method: 'Decision', platform: 'UFL PC', date: '' });
@@ -329,12 +365,13 @@ const fetchFights = async () => {
       ).map(fight => {
         const opponentName = fight.fighter1 === f.name ? fight.fighter2 : fight.fighter1;
         return fighters.find(x => x.name === opponentName)?.wins || 0;
-
+      });
       const quality = opponents.reduce((a, b) => a + b, 0);
       return {
         fighter: f,
         score: f.wins * 5 - f.losses * 2 + quality,
       };
+    });
 
     scores.sort((a, b) => b.score - a.score);
     return scores.map(s => s.fighter);
@@ -355,6 +392,8 @@ const fetchFighters = async () => {
       firebaseId: doc.id,
       originalName: fighter.name, // ✅ Required for renaming sync
     };
+  });
+  
 
   setFighters(data);
 };
@@ -365,78 +404,7 @@ useEffect(() => {
   fetchFights();
 }, []);
 
-  
-  const addFighter = async () => {
-    if (!newFighter.name.trim()) return;
-
-    const exists = fighters.find(
-      (f) => f.name === newFighter.name && f.platform === newFighter.platform
-    );
-    if (exists) return alert('Fighter with this name already exists on this platform!');
-
-    const fighter: Omit<Fighter, 'firebaseId'> = {
-      ...newFighter,
-      wins: 0,
-      losses: 0,
-      draws: 0,
-      koWins: 0,
-      champion: false,
-    };
-
-    await addDoc(collection(db, 'fighters'), fighter);
-    await fetchFighters();
-    setNewFighter({ name: '', platform: 'UFL PC' });
-  };
-
-
-  const addFighter = async () => {
-    if (!newFighter.name.trim()) return;
-
-    const exists = fighters.find(
-      (f) => f.name === newFighter.name && f.platform === newFighter.platform
-    );
-    if (exists) return alert('Fighter with this name already exists on this platform!');
-
-    const fighter: Omit<Fighter, 'firebaseId'> = {
-      ...newFighter,
-      wins: 0,
-      losses: 0,
-      draws: 0,
-      koWins: 0,
-      champion: false,
-      previousRank: 0,
-    };
-
-    await addDoc(collection(db, 'fighters'), fighter);
-    await fetchFighters();
-    setNewFighter({ name: '', platform: 'UFL PC' });
-  };
-
-
-  const addFighter = async () => {
-    if (!newFighter.name.trim()) return;
-
-    const exists = fighters.find(
-      (f) => f.name === newFighter.name && f.platform === newFighter.platform
-    );
-    if (exists) return alert('Fighter with this name already exists on this platform!');
-
-    const fighter: Omit<Fighter, 'firebaseId'> = {
-      ...newFighter,
-      wins: 0,
-      losses: 0,
-      draws: 0,
-      koWins: 0,
-      champion: false,
-      previousRank: 0,
-    };
-
-    await addDoc(collection(db, 'fighters'), fighter);
-    await fetchFighters();
-    setNewFighter({ name: '', platform: 'UFL PC' });
-  };
-
-return (
+  return (
     <div className="min-h-screen bg-gradient-to-b from-black via-gray-900 to-black text-white p-4">
       <div className="text-center text-4xl font-bold mb-6">UFL World Rankings</div>
 
@@ -480,11 +448,8 @@ return (
         >
 {tab === 'Records' && (
   <div className="space-y-4">
-{fighters
-  .filter(f =>
-    (adminMode || f.name?.trim()) &&
-    f.name.toLowerCase().includes(search.toLowerCase())
-  )
+    {fighters
+.filter(f => adminMode || f.name?.trim())
       .map(f => {
         const stats = getFighterStats(f.name);
         return (
@@ -505,13 +470,7 @@ return (
 
           {tab === 'Fights' && (
             <div className="space-y-4">
-{fights
-  .filter(f =>
-    f.fighter1.toLowerCase().includes(search.toLowerCase()) ||
-    f.fighter2.toLowerCase().includes(search.toLowerCase()) ||
-    f.winner.toLowerCase().includes(search.toLowerCase())
-  )
-  .map((f, i) => (
+              {fights.map((f, i) => (
                 <div key={i} className="bg-gray-800 p-4 rounded-xl shadow">
                   <div className="font-semibold">{f.fighter1} vs {f.fighter2}</div>
                   <div>Winner: {f.winner} by {f.method} on {f.date}</div>
@@ -749,7 +708,7 @@ return (
                       await updateDoc(doc(db, 'fighters', f.firebaseId), {
                         ...f,
                         champion: f.name === selectedName,
-
+                      });
                     }
                     await fetchFighters();
                   }}
