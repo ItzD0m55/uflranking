@@ -311,11 +311,15 @@ const fetchFights = async () => {
     if (!newFighter.name) return;
     const exists = fighters.find(f => f.name === newFighter.name && f.platform === newFighter.platform);
     if (exists) return alert('Fighter with this name already exists on this platform!');
-    const fighter: Fighter = { ...newFighter, id: crypto.randomUUID(), wins: 0, losses: 0, draws: 0, koWins: 0, previousRank: 0, champion: false };
-    await addDoc(collection(db, 'fighters'), fighter);
-    fetchFighters();
-    setNewFighter({ name: '', platform: 'UFL PC' });
-  };
+    const fighter: Omit<Fighter, 'firebaseId'> = {
+      ...newFighter,
+      wins: 0,
+      losses: 0,
+      draws: 0,
+      koWins: 0,
+      previousRank: 0,
+      champion: false,
+    };    
 
   const addFight = async () => {
     const f1 = fighters.find(f => f.name === newFight.fighter1);
