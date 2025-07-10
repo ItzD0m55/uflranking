@@ -197,7 +197,6 @@ export default function Home() {
     await fetchFights();   // optional: refresh fights list
   
     setNewFight({
-  id: crypto.randomUUID(),
   fighter1: '',
   fighter2: '',
   winner: '',
@@ -307,37 +306,9 @@ const fetchFights = async () => {
     return { wins, losses, draws, koWins };
   };  
 
-  const addFighter = async () => {
-    if (!newFighter.name) return;
-    const exists = fighters.find(f => f.name === newFighter.name && f.platform === newFighter.platform);
-    if (exists) return alert('Fighter with this name already exists on this platform!');
-    const fighter: Omit<Fighter, 'firebaseId'> = {
-      ...newFighter,
-      wins: 0,
-      losses: 0,
-      draws: 0,
-      koWins: 0,
-      previousRank: 0,
-      champion: false,
-    };    
+      
 
-  const addFight = async () => {
-    const f1 = fighters.find(f => f.name === newFight.fighter1);
-    const f2 = fighters.find(f => f.name === newFight.fighter2);
-    if (!f1 || !f2) return alert('Fighters must exist');
-
-    // Update records
-    const updatedFighters = fighters.map(f => {
-      if (f.name === newFight.fighter1 || f.name === newFight.fighter2) {
-        const isWinner = f.name === newFight.winner;
-        const isDraw = newFight.method === 'Draw';
-        return {
-          ...f,
-          wins: isWinner && !isDraw ? f.wins + 1 : f.wins,
-          losses: !isWinner && !isDraw ? f.losses + 1 : f.losses,
-          draws: isDraw ? f.draws + 1 : f.draws,
-          koWins: isWinner && newFight.method === 'KO' ? f.koWins + 1 : f.koWins,
-        };
+  
       }
       return f;
     });
@@ -352,7 +323,6 @@ const fetchFights = async () => {
 
     await addDoc(collection(db, 'fights'), newFight);
     setNewFight({
-  id: crypto.randomUUID(),
   fighter1: '',
   fighter2: '',
   winner: '', method: 'Decision', platform: 'UFL PC', date: '' });
@@ -408,7 +378,30 @@ useEffect(() => {
   fetchFights();
 }, []);
 
-  return (
+  
+  const addFighter = async () => {
+    if (!newFighter.name.trim()) return;
+
+    const exists = fighters.find(
+      (f) => f.name === newFighter.name && f.platform === newFighter.platform
+    );
+    if (exists) return alert('Fighter with this name already exists on this platform!');
+
+    const fighter: Omit<Fighter, 'firebaseId'> = {
+      ...newFighter,
+      wins: 0,
+      losses: 0,
+      draws: 0,
+      koWins: 0,
+      champion: false,
+    };
+
+    await addDoc(collection(db, 'fighters'), fighter);
+    await fetchFighters();
+    setNewFighter({ name: '', platform: 'UFL PC' });
+  };
+
+return (
     <div className="min-h-screen bg-gradient-to-b from-black via-gray-900 to-black text-white p-4">
       <div className="text-center text-4xl font-bold mb-6">UFL World Rankings</div>
 
