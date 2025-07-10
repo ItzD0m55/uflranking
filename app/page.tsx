@@ -310,8 +310,7 @@ const fetchFights = async () => {
 
   
       }
-      return f;
-    });
+  });
 
     // Save updated fighters
     const snapshot = await getDocs(collection(db, 'fighters'));
@@ -394,6 +393,30 @@ useEffect(() => {
       draws: 0,
       koWins: 0,
       champion: false,
+    };
+
+    await addDoc(collection(db, 'fighters'), fighter);
+    await fetchFighters();
+    setNewFighter({ name: '', platform: 'UFL PC' });
+  };
+
+
+  const addFighter = async () => {
+    if (!newFighter.name.trim()) return;
+
+    const exists = fighters.find(
+      (f) => f.name === newFighter.name && f.platform === newFighter.platform
+    );
+    if (exists) return alert('Fighter with this name already exists on this platform!');
+
+    const fighter: Omit<Fighter, 'firebaseId'> = {
+      ...newFighter,
+      wins: 0,
+      losses: 0,
+      draws: 0,
+      koWins: 0,
+      champion: false,
+      previousRank: 0,
     };
 
     await addDoc(collection(db, 'fighters'), fighter);
