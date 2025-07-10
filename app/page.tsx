@@ -256,7 +256,7 @@ export default function Home() {
     value: any
   ) => {
     setFighters((prev) =>
-      prev.map((f) => (f.id === id ? { ...f, [field]: value } : f))
+    prev.map((f) => (f.firebaseId === id ? { ...f, [field]: value } : f))
     );
   };  
 
