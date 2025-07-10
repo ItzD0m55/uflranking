@@ -20,7 +20,8 @@ const platforms = ['UFL PC', 'UFL PS5', 'UFL XBOX'] as const;
 type Platform = typeof platforms[number];
 
 type Fighter = {
-  firebaseId: string; // ✅ add this
+  firebaseId: string;
+  originalName?: string; // ✅ add this
   name: string;
   platform: Platform;
   wins: number;
