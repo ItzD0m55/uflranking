@@ -450,7 +450,7 @@ useEffect(() => {
 {tab === 'Records' && (
   <div className="space-y-4">
     {fighters
-.filter(f => adminMode || f.name?.trim())
+.filter(f => (adminMode || f.name?.trim()) && f.name.toLowerCase().includes(search.toLowerCase()))
       .map(f => {
         const stats = getFighterStats(f.name);
         return (
@@ -471,7 +471,7 @@ useEffect(() => {
 
           {tab === 'Fights' && (
             <div className="space-y-4">
-              {fights.map((f, i) => (
+              {fights.filter(f => f.fighter1.toLowerCase().includes(search.toLowerCase()) || f.fighter2.toLowerCase().includes(search.toLowerCase()) || f.winner.toLowerCase().includes(search.toLowerCase())).map((f, i) => (
                 <div key={i} className="bg-gray-800 p-4 rounded-xl shadow">
                   <div className="font-semibold">{f.fighter1} vs {f.fighter2}</div>
                   <div>Winner: {f.winner} by {f.method} on {f.date}</div>
