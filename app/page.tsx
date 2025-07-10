@@ -401,6 +401,30 @@ useEffect(() => {
     setNewFighter({ name: '', platform: 'UFL PC' });
   };
 
+
+  const addFighter = async () => {
+    if (!newFighter.name.trim()) return;
+
+    const exists = fighters.find(
+      (f) => f.name === newFighter.name && f.platform === newFighter.platform
+    );
+    if (exists) return alert('Fighter with this name already exists on this platform!');
+
+    const fighter: Omit<Fighter, 'firebaseId'> = {
+      ...newFighter,
+      wins: 0,
+      losses: 0,
+      draws: 0,
+      koWins: 0,
+      champion: false,
+      previousRank: 0,
+    };
+
+    await addDoc(collection(db, 'fighters'), fighter);
+    await fetchFighters();
+    setNewFighter({ name: '', platform: 'UFL PC' });
+  };
+
 return (
     <div className="min-h-screen bg-gradient-to-b from-black via-gray-900 to-black text-white p-4">
       <div className="text-center text-4xl font-bold mb-6">UFL World Rankings</div>
