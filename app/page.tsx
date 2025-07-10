@@ -73,8 +73,7 @@ export default function Home() {
       if (changed) {
         await updateDoc(doc(db, 'fights', docSnap.id), updatedFight);
       }
-    });
-  
+
     await Promise.all(updates);
   };  
 
@@ -112,14 +111,13 @@ export default function Home() {
         ) {
           losses++;
         }
-      });
-  
+
       await updateDoc(doc(db, 'fighters', fighter.firebaseId), {
         wins,
         losses,
         draws,
         koWins,
-      });
+
     }
   
     await fetchFighters(); // Refresh state
@@ -136,8 +134,7 @@ export default function Home() {
         ...f,
         score: f.wins * 5 - f.losses * 2 + qualityScore + recencyBonus,
       };
-    });
-  
+
     const sorted = scored.sort((a, b) => b.score - a.score);
     const recentFights = fights.filter(f => f.platform === platform);
   
@@ -189,8 +186,7 @@ export default function Home() {
       method,
       date,
       platform,
-    });
-  
+
     await updateRecordsAfterFight(newFight); // update stats
   
     await fetchFighters(); // <-- Refresh fighters after update
@@ -203,7 +199,7 @@ export default function Home() {
       method: 'Decision',
       date: '',
       platform: 'UFL PC',
-    });
+
   };     
 
   const handleAddFighter = async () => {
@@ -217,8 +213,7 @@ export default function Home() {
       draws: 0,
       koWins: 0,
       champion: false,
-    });
-  
+
     await fetchFighters();
     setNewFighter({ name: '', platform: 'UFL PC' });
   };  
@@ -242,7 +237,7 @@ export default function Home() {
           losses: f.losses,
           draws: f.draws,
           koWins: f.koWins,
-        });
+
       }
     }
   
@@ -269,7 +264,6 @@ const [newFight, setNewFight] = useState<Fight>({
   method: 'Decision',
   platform: 'UFL PC',
   date: '',
-});
 
 const [fighterSearch1, setFighterSearch1] = useState('');
 const [fighterSearch2, setFighterSearch2] = useState('');
@@ -301,8 +295,7 @@ const fetchFights = async () => {
       } else {
         losses++;
       }
-    });
-  
+
     return { wins, losses, draws, koWins };
   };  
 
@@ -310,7 +303,6 @@ const fetchFights = async () => {
 
   
       }
-  });
 
     // Save updated fighters
     const snapshot = await getDocs(collection(db, 'fighters'));
@@ -318,7 +310,6 @@ const fetchFights = async () => {
       const data = d.data() as Fighter;
       const updated = updatedFighters.find(f => f.name === data.name);
       if (updated) await updateDoc(doc(db, 'fighters', d.id), updated);
-    });
 
     await addDoc(collection(db, 'fights'), newFight);
     setNewFight({
@@ -338,13 +329,12 @@ const fetchFights = async () => {
       ).map(fight => {
         const opponentName = fight.fighter1 === f.name ? fight.fighter2 : fight.fighter1;
         return fighters.find(x => x.name === opponentName)?.wins || 0;
-      });
+
       const quality = opponents.reduce((a, b) => a + b, 0);
       return {
         fighter: f,
         score: f.wins * 5 - f.losses * 2 + quality,
       };
-    });
 
     scores.sort((a, b) => b.score - a.score);
     return scores.map(s => s.fighter);
@@ -365,8 +355,6 @@ const fetchFighters = async () => {
       firebaseId: doc.id,
       originalName: fighter.name, // ✅ Required for renaming sync
     };
-  });
-  
 
   setFighters(data);
 };
@@ -761,7 +749,7 @@ return (
                       await updateDoc(doc(db, 'fighters', f.firebaseId), {
                         ...f,
                         champion: f.name === selectedName,
-                      });
+
                     }
                     await fetchFighters();
                   }}
