@@ -840,7 +840,7 @@ useEffect(() => {
                       <input
                         key={stat}
                         type="number"
-                        value={f[stat as keyof typeof f]}
+                        value={String(f[stat as keyof typeof f] ?? '')}
                         onChange={e =>
                           setFighters(prev =>
                             prev.map(x =>
