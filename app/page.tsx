@@ -41,6 +41,7 @@ type Fight = {
   date: string;
 };
 
+
 export default function Home() {
   const [tab, setTab] = useState<Tab>('Records');
   const [fighters, setFighters] = useState<Fighter[]>([]);
@@ -146,30 +147,53 @@ export default function Home() {
   };  
   
   const applyHeadToHeadOverrides = (fighters: Fighter[], fights: Fight[]): Fighter[] => {
-    let sorted = [...fighters];
-    const recentFights = fights.filter(f => differenceInDays(new Date(), new Date(f.date)) <= 20);
+    const platformGroups: Record<Platform, Fighter[]> = {
+      'UFL PC': [],
+      'UFL PS5': [],
+      'UFL XBOX': [],
+    };
   
-    let madeChange = true;
-    while (madeChange) {
-      madeChange = false;
+    // Group fighters by platform
+    fighters.forEach(f => {
+      platformGroups[f.platform].push(f);
+    });
   
-      for (const fight of recentFights) {
-        const winnerName = fight.winner;
-        const loserName = fight.fighter1 === winnerName ? fight.fighter2 : fight.fighter1;
+    const result: Fighter[] = [];
   
-        const winnerIndex = sorted.findIndex(f => f.name === winnerName && f.platform === fight.platform);
-        const loserIndex = sorted.findIndex(f => f.name === loserName && f.platform === fight.platform);
+    for (const platform of platforms) {
+      const group = platformGroups[platform];
   
-        if (winnerIndex > -1 && loserIndex > -1 && winnerIndex > loserIndex) {
-          // Move winner above loser
-          const [winnerFighter] = sorted.splice(winnerIndex, 1);
-          sorted.splice(loserIndex, 0, winnerFighter);
-          madeChange = true;
-        }
-      }
+      // Create base scores
+      const baseScores: Record<string, number> = {};
+      group.forEach(f => {
+        baseScores[f.name] = f.wins * 5 - f.losses * 2 + f.koWins * 2;
+      });
+  
+      // Build head-to-head wins map
+      const h2hWins: Record<string, Set<string>> = {};
+      fights
+        .filter(f => f.platform === platform && f.winner !== 'Draw')
+        .forEach(f => {
+          const loser = f.winner === f.fighter1 ? f.fighter2 : f.fighter1;
+          if (!h2hWins[f.winner]) h2hWins[f.winner] = new Set();
+          h2hWins[f.winner].add(loser);
+        });
+  
+      // Sort with head-to-head taking priority
+      const sorted = [...group].sort((a, b) => {
+        const aBeatsB = h2hWins[a.name]?.has(b.name);
+        const bBeatsA = h2hWins[b.name]?.has(a.name);
+  
+        if (aBeatsB && !bBeatsA) return -1;
+        if (bBeatsA && !aBeatsB) return 1;
+  
+        return (baseScores[b.name] ?? 0) - (baseScores[a.name] ?? 0);
+      });
+  
+      result.push(...sorted);
     }
   
-    return sorted;
+    return result;
   };   
 
   const handleDeleteFight = async (id: string) => {
@@ -494,25 +518,9 @@ useEffect(() => {
 
     <h2 className="text-2xl font-bold mb-2">Top 15 Contenders</h2>
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-      {fighters
-        .filter(f => f.platform === 'UFL PC' && !f.champion)
-        .sort((a, b) => {
-          const scoreA = a.wins * 5 - a.losses * 2 + a.koWins * 2;
-          const scoreB = b.wins * 5 - b.losses * 2 + b.koWins * 2;
-        
-          const aBeatB = fights.some(
-            f => f.winner === a.name && (f.fighter1 === b.name || f.fighter2 === b.name)
-          );
-          const bBeatA = fights.some(
-            f => f.winner === b.name && (f.fighter1 === a.name || f.fighter2 === a.name)
-          );
-        
-          if (aBeatB && !bBeatA) return -1; // A beat B, rank higher
-          if (bBeatA && !aBeatB) return 1;  // B beat A, rank higher
-        
-          return scoreB - scoreA; // fallback
-        })               
-        .slice(0, 15)
+{getSortedFighters('UFL PC')
+  .filter(f => !f.champion)
+  .slice(0, 15)
         .map((f, index) => (
           <div key={f.name} className="bg-gray-800 text-white p-4 rounded">
             <div className="flex justify-between mb-2">
@@ -548,25 +556,9 @@ useEffect(() => {
 
     <h2 className="text-2xl font-bold mb-2">Top 15 Contenders</h2>
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-      {fighters
-        .filter(f => f.platform === 'UFL PS5' && !f.champion)
-        .sort((a, b) => {
-          const scoreA = a.wins * 5 - a.losses * 2 + a.koWins * 2;
-          const scoreB = b.wins * 5 - b.losses * 2 + b.koWins * 2;
-        
-          const aBeatB = fights.some(
-            f => f.winner === a.name && (f.fighter1 === b.name || f.fighter2 === b.name)
-          );
-          const bBeatA = fights.some(
-            f => f.winner === b.name && (f.fighter1 === a.name || f.fighter2 === a.name)
-          );
-        
-          if (aBeatB && !bBeatA) return -1; // A beat B, rank higher
-          if (bBeatA && !aBeatB) return 1;  // B beat A, rank higher
-        
-          return scoreB - scoreA; // fallback
-        })             
-        .slice(0, 15)
+    {getSortedFighters('UFL PS5')
+  .filter(f => !f.champion)
+  .slice(0, 15)
         .map((f, index) => (
           <div key={f.name} className="bg-gray-800 text-white p-4 rounded">
             <div className="flex justify-between mb-2">
@@ -602,25 +594,9 @@ useEffect(() => {
 
     <h2 className="text-2xl font-bold mb-2">Top 15 Contenders</h2>
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-      {fighters
-        .filter(f => f.platform === 'UFL XBOX' && !f.champion)
-        .sort((a, b) => {
-          const scoreA = a.wins * 5 - a.losses * 2 + a.koWins * 2;
-          const scoreB = b.wins * 5 - b.losses * 2 + b.koWins * 2;
-        
-          const aBeatB = fights.some(
-            f => f.winner === a.name && (f.fighter1 === b.name || f.fighter2 === b.name)
-          );
-          const bBeatA = fights.some(
-            f => f.winner === b.name && (f.fighter1 === a.name || f.fighter2 === a.name)
-          );
-        
-          if (aBeatB && !bBeatA) return -1; // A beat B, rank higher
-          if (bBeatA && !aBeatB) return 1;  // B beat A, rank higher
-        
-          return scoreB - scoreA; // fallback
-        })        
-        .slice(0, 15)
+    {getSortedFighters('UFL XBOX')
+  .filter(f => !f.champion)
+  .slice(0, 15)
         .map((f, index) => (
           <div key={f.name} className="bg-gray-800 text-white p-4 rounded">
             <div className="flex justify-between mb-2">
@@ -947,3 +923,73 @@ useEffect(() => {
     </div>
   );
 }
+
+
+/* --------------------------------------------------------------- */
+/*   NORMALIZED HEAD-TO-HEAD + RECENCY RANKER (DROP-IN)            */
+/* --------------------------------------------------------------- */
+function calculateRankings(
+  fighters: Fighter[],
+  fights: Fight[],
+  platform: Platform
+): Fighter[] {
+  const norm = (s: string) => s.trim().toLowerCase();
+  const today = new Date();
+  const recentCutoff = new Date();
+  recentCutoff.setDate(today.getDate() - 20);
+
+  // Filter data for this platform
+  const fightersP = fighters.filter(f => f.platform === platform);
+  const fightsP   = fights.filter(f => f.platform === platform);
+
+  /* 1️⃣ Build base + recency score */
+  const score: Record<string, number> = {};
+  fightersP.forEach(f => {
+    score[norm(f.name)] = f.wins * 5 - f.losses * 2 + f.koWins * 2;
+  });
+
+  /* 2️⃣ Head-to-head win counts  + log */
+  const h2h: Record<string, Record<string, number>> = {};
+  fightsP.forEach(f => {
+    if (f.winner === 'Draw') return;
+    const w = norm(f.winner);
+    const l = norm(f.winner === f.fighter1 ? f.fighter2 : f.fighter1);
+
+    if (!h2h[w]) h2h[w] = {};
+    h2h[w][l] = (h2h[w][l] || 0) + 1;
+
+    // Recency bonus
+    const fightDate = new Date(f.date);
+    if (fightDate >= recentCutoff) {
+      score[w] += 2;
+    }
+
+    // Debug log
+    console.log(
+      `%c${f.winner} beat ${l} (${f.date}) [${platform}]`,
+      'color:#0af'
+    );
+  });
+
+  /* 3️⃣ Sort with STRICT H2H override */
+  const sorted = [...fightersP].sort((a, b) => {
+    const aN = norm(a.name);
+    const bN = norm(b.name);
+
+    const aBeatsB = h2h[aN]?.[bN] || 0;
+    const bBeatsA = h2h[bN]?.[aN] || 0;
+
+    if (aBeatsB !== bBeatsA) return bBeatsA - aBeatsB; // more wins ⇒ higher
+    return (score[bN] || 0) - (score[aN] || 0);        // fallback score
+  });
+
+  /* 4️⃣ Final debug print */
+  console.log(
+    `%c🏆 ${platform} ranking →`,
+    'color:#fa0',
+    sorted.map(f => f.name)
+  );
+
+  return sorted;
+}
+/* --------------------------------------------------------------- */
