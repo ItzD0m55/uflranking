@@ -46,6 +46,7 @@ export default function Home() {
   const [tab, setTab] = useState<Tab>('Records');
   const [fighters, setFighters] = useState<Fighter[]>([]);
   const [search, setSearch] = useState('');
+const [recordPlatformFilter, setRecordPlatformFilter] = useState<Platform | 'All'>('All');
   const [fights, setFights] = useState<Fight[]>([]);
   const [adminMode, setAdminMode] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
@@ -451,7 +452,7 @@ useEffect(() => {
 
       
 {(tab === 'Records' || tab === 'Fights') && (
-  <div className="flex justify-center mb-4">
+  <div className="flex flex-col sm:flex-row justify-center items-center gap-4 mb-4">
     <input
       type="text"
       value={search}
@@ -459,6 +460,16 @@ useEffect(() => {
       placeholder="Search..."
       className="px-4 py-2 w-full max-w-md rounded-xl text-white bg-gray-800 border border-gray-600"
     />
+    <select
+      value={recordPlatformFilter}
+      onChange={(e) => setRecordPlatformFilter(e.target.value as Platform | 'All')}
+      className="px-3 py-2 bg-gray-800 text-white rounded-xl border border-gray-600"
+    >
+      <option value="All">All Platforms</option>
+      {platforms.map(p => (
+        <option key={p} value={p}>{p}</option>
+      ))}
+    </select>
   </div>
 )}
 
@@ -474,7 +485,11 @@ useEffect(() => {
 {tab === 'Records' && (
   <div className="space-y-4">
     {fighters
-.filter(f => (adminMode || f.name?.trim()) && f.name.toLowerCase().includes(search.toLowerCase()))
+.filter(f => 
+        (adminMode || f.name?.trim()) &&
+        f.name.toLowerCase().includes(search.toLowerCase()) &&
+        (recordPlatformFilter === 'All' || f.platform === recordPlatformFilter)
+    )
       .map(f => {
         const stats = getFighterStats(f.name);
         return (
@@ -495,7 +510,14 @@ useEffect(() => {
 
           {tab === 'Fights' && (
             <div className="space-y-4">
-              {fights.filter(f => f.fighter1.toLowerCase().includes(search.toLowerCase()) || f.fighter2.toLowerCase().includes(search.toLowerCase()) || f.winner.toLowerCase().includes(search.toLowerCase())).map((f, i) => (
+              {fights.filter(f => 
+        (recordPlatformFilter === 'All' || f.platform === recordPlatformFilter) &&
+        (
+          f.fighter1.toLowerCase().includes(search.toLowerCase()) ||
+          f.fighter2.toLowerCase().includes(search.toLowerCase()) ||
+          f.winner.toLowerCase().includes(search.toLowerCase())
+        )
+    ).map((f, i) => (
                 <div key={i} className="bg-gray-800 p-4 rounded-xl shadow">
                   <div className="font-semibold">{f.fighter1} vs {f.fighter2}</div>
                   <div>Winner: {f.winner} by {f.method} on {f.date}</div>
